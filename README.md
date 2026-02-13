@@ -25,15 +25,9 @@ This module acts as an intermediary between the FF01 machine and the server.
 
 Struct that holds all necessary data for the machine to process its task.
 
-
----
-
 #### Bounds
 
 Defines the minimum, maximum, and desired values for a given parameter.
-
-
----
 
 #### ProxyClient
 
@@ -48,9 +42,6 @@ A proxy wrapper around `beas_bsl::Client` that provides a simplified interface f
 - **finalize**  
   Completes the current work order step by closing `WorkorderRouting (10/10)` and submitting the corresponding backflush `POST` request to the server.
 
-
----
-
 #### ResponseError
 
 Errors returned by the underlying proxy client handler/worker:
@@ -60,9 +51,6 @@ Errors returned by the underlying proxy client handler/worker:
 
 - **InvalidData**  
   The client succeeded, but the received data does not meet the expected requirements.
-
-
----
 
 #### TransactionError
 
