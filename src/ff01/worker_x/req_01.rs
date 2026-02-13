@@ -67,10 +67,10 @@ pub fn get_next_entry(client: &Client) -> Result<Entry, ResponseError>
     let max     = unpack_nullable(qcorder_measurement.maximum)?;
     let desired = unpack_nullable(qcorder_measurement.desired_value)?;
 
-    let bounds = Bounds { min, max, desired };
+    let weight_bounds = Bounds { min, max, desired };
     
     // step 5: return result
-    Ok(Entry { doc_entry, scrap_quantity: quantity_scrap, bounds })
+    Ok(Entry { doc_entry, scrap_quantity: quantity_scrap, weight_bounds })
 }
 
 pub fn get_quantity_scrap(client: &Client, doc_entry: i32) -> Result<f64, ClientError>

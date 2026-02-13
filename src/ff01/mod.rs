@@ -7,8 +7,10 @@ mod client_proxy;
 pub use client_proxy::ProxyClient;
 pub use client_proxy::TransactionError;
 
+use crate::Bounds;
+
 #[derive(Debug, Clone)]
-pub enum Request
+pub(crate) enum Request
 {
     GetNextEntry,
     GetScrapQuantity(i32),
@@ -17,7 +19,7 @@ pub enum Request
 }
 
 #[derive(Debug, Clone)]
-pub enum Response
+pub(crate) enum Response
 { 
     GetNextEntry(Entry),
     GetScrapQuantity(f64),
@@ -41,13 +43,6 @@ impl From<ClientError> for ResponseError
 }
 
 #[derive(Debug, Clone)]
-pub enum GetNextEntryError
-{
-    NoWorkorder,
-}
-
-
-#[derive(Debug, Clone)]
 pub struct Entry
 {
     pub doc_entry: i32,
@@ -55,13 +50,5 @@ pub struct Entry
     /// Used to check WorkorderPos for updates in 
     pub scrap_quantity: f64,
     
-    pub bounds: Bounds
-}
-
-#[derive(Debug, Clone)]
-pub struct Bounds
-{
-    pub min:     f64,
-    pub max:     f64,
-    pub desired: f64
+    pub weight_bounds: Bounds
 }

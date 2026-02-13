@@ -22,7 +22,7 @@ pub struct ProxyClient
     sender:   Sender<Request>, 
     receiver: Receiver<Result<Response, ResponseError>>, 
     
-    pending_transcation: Option<Request>
+    pending_transaction: Option<Request>
 }
 
 #[derive(Debug)]
@@ -32,7 +32,7 @@ pub enum TransactionError
     ChannelFull,
     ChannelClosed,
     TagMismatch,
-    ResponseError(ResponseError)
+    Response(ResponseError)
 }
 
 impl From<TrySendError<Request>> for TransactionError
@@ -51,7 +51,7 @@ impl From<ResponseError> for TransactionError
 {
     fn from(err: ResponseError) -> Self
     {
-        TransactionError::ResponseError(err)
+        TransactionError::Response(err)
     }
 }
 
@@ -79,7 +79,7 @@ impl ProxyClient
         // TODO: maybe handle termination gracefully?
         _ = worker_handle;
         
-        Ok(Self { sender: client_sender, receiver: client_receiver, pending_transcation: None })
+        Ok(Self { sender: client_sender, receiver: client_receiver, pending_transaction: None })
     }
     
     pub fn get_next_entry(&mut self) -> Result<Entry, TransactionError>
@@ -108,7 +108,7 @@ impl ProxyClient
     
     fn update_transaction(&mut self, request: Request) -> Result<Response, TransactionError>
     {
-        match &self.pending_transcation
+        match &self.pending_transaction
         {
             Some(pending_request) =>
             {
@@ -136,7 +136,7 @@ impl ProxyClient
             {
                 println!("[MAIN] Sending request");
                 self.sender.try_send(request.clone())?;
-                self.pending_transcation = Some(request.clone());
+                self.pending_transaction = Some(request.clone());
                 
                 println!("[MAIN] Sent request");
                 return Err(TransactionError::Pending);

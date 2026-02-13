@@ -1,5 +1,5 @@
 use beas_bsl::{ ClientConfig, ClientError };
-use stahlwerk_extension::ff01::{ProxyClient};
+use stahlwerk_extension::{ProxyClient};
 
 // Example for happy path
 pub fn main() -> Result<(), ClientError>
