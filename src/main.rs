@@ -1,51 +1,37 @@
-use std::time::Duration;
-
 use beas_bsl::{ ClientConfig, ClientError };
-use stahlwerk_extension::ff01::{Entry, ProxyClient, TransactionError};
+use stahlwerk_extension::ff01::{ProxyClient};
 
-
+// Example for happy path
 pub fn main() -> Result<(), ClientError>
 {
-    println!("start: ");
+    let config = ClientConfig::from_file("config.json").unwrap();
     
-    let config = ClientConfig::from_file("config.json");
-    println!("config: {:?}", config);
-    
-    let config = config.unwrap();
-    
-    let proxy = ProxyClient::new(config);
-    println!("proxy: {:?}", proxy);
-    
-    let mut proxy = proxy.unwrap();
-    
-    let entry = get_next_entry(&mut proxy);
-    
-    println!("entry: {:?}", entry);
-    
-    let entry = entry.unwrap();
-    
-    _ = entry;
-    
-    Ok(())
-}
-
-fn get_next_entry(proxy: &mut ProxyClient) -> Result<Entry, TransactionError>
-{
-    let mut attempts: u32 = 0;
+    let mut proxy = ProxyClient::new(config).unwrap();
     
     loop 
     {
-        if let Some(entry) = proxy.get_next_entry()?
+        // user submits new workorder
+        
+        // we detect the next order/entry
+        let entry =  proxy.get_next_entry().unwrap();
+    
+        // Machine starts counting/measuring
+        loop 
         {
-            return Ok(entry);
+            // user submitted scrap quantity
+            
+            // poll for scrap quantity
+            let scrap_quantity = proxy.get_scrap_quantity(&entry).unwrap();
+            
+            // detect change in scrap quantity
+            if scrap_quantity != entry.scrap_quantity
+            {
+                // Machine stops counting/measuring
+                break;
+            }
         }
         
-        if attempts > 100
-        {
-            panic!("Exceeded attempts");
-        }
-        
-        attempts += 1;
-        std::thread::sleep(Duration::from_millis(25));
+        // submit data via finalize
+        proxy.finalize().unwrap();   
     }
 }

@@ -28,7 +28,8 @@ pub struct ProxyClient
 #[derive(Debug)]
 pub enum TransactionError
 {
-    SendError(TrySendError<Request>),
+    Pending,
+    ChannelFull,
     ChannelClosed,
     TagMismatch,
     ResponseError(ResponseError)
@@ -38,7 +39,11 @@ impl From<TrySendError<Request>> for TransactionError
 {
     fn from(err: TrySendError<Request>) -> Self
     {
-        TransactionError::SendError(err)
+        match err
+        {
+            TrySendError::Full(_)   => TransactionError::ChannelFull,
+            TrySendError::Closed(_) => TransactionError::ChannelClosed,
+        }
     }
 }
 
@@ -54,12 +59,12 @@ impl ProxyClient
 {
     pub fn new(config: ClientConfig) -> Result<Self, ClientError>
     {
-        let backing_client = Client::new(config)?;
+        let client = Client::new(config)?;
         
         let (client_sender, worker_receiver) = unbounded::<Request>();
         let (worker_sender, client_receiver) = unbounded::<Result<Response, ResponseError>>();
         
-        let worker = Worker::new(backing_client, worker_receiver, worker_sender);
+        let worker = Worker::new(client, worker_receiver, worker_sender);
         
         let worker_handle = thread::spawn(move || 
         {
@@ -77,41 +82,31 @@ impl ProxyClient
         Ok(Self { sender: client_sender, receiver: client_receiver, pending_transcation: None })
     }
     
-    // steps: get next entry -> 
-    
-    // which informations do we need in step one??
-    
-    // compare scrap amount with entry and current
-    
-    // simply call backflush
-    
-    pub fn get_next_entry(&mut self) -> Result<Option<Entry>, TransactionError>
+    pub fn get_next_entry(&mut self) -> Result<Entry, TransactionError>
     {
-        match self.update_transaction(Request::GetNextEntry)?
+        match self.update_transaction(Request::GetNextEntry)? 
         {
-            Some(entry) => 
-            {
-                match entry 
-                {
-                    Response::GetNextEntry(entry) => Ok(entry),
-                    _ => Err(TransactionError::TagMismatch)
-                }
-            },
-            None => Ok(None),
+            Response::GetNextEntry(entry) => Ok(entry),
+            _ => Err(TransactionError::TagMismatch)
         }
     }
     
-    pub fn check_scrap_update(&mut self) -> Result<Option<()>, TransactionError>
+    pub fn get_scrap_quantity(&mut self, entry: &Entry) -> Result<f64, TransactionError>
     {
-        todo!();
+        match self.update_transaction(Request::GetScrapQuantity(entry.doc_entry))?
+        {
+            Response::GetScrapQuantity(v) => Ok(v),
+            _ => Err(TransactionError::TagMismatch),
+        }
     }
     
+    /// TODO: figure out everything that is needed
     pub fn finalize(&mut self) -> Result<Option<()>, TransactionError>
     {
         todo!();
     }
     
-    fn update_transaction(&mut self, request: Request) -> Result<Option<Response>, TransactionError>
+    fn update_transaction(&mut self, request: Request) -> Result<Response, TransactionError>
     {
         match &self.pending_transcation
         {
@@ -124,14 +119,14 @@ impl ProxyClient
                 
                 match self.receiver.try_recv()
                 {
-                    Ok(result) => return Ok(Some(result?)),
+                    Ok(result) => return Ok(result?),
                     Err(error) =>
                     {
                         println!("[MAIN] Failed to receive: {:?}", error);
                         
                         match error
                         {
-                            TryRecvError::Empty  => return Ok(None),
+                            TryRecvError::Empty  => return Err(TransactionError::Pending),
                             TryRecvError::Closed => return Err(TransactionError::ChannelClosed),
                         }
                     },
@@ -144,7 +139,7 @@ impl ProxyClient
                 self.pending_transcation = Some(request.clone());
                 
                 println!("[MAIN] Sent request");
-                return Ok(None);
+                return Err(TransactionError::Pending);
             },
         }
     }

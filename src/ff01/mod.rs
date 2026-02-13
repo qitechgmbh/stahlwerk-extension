@@ -1,18 +1,17 @@
 use beas_bsl::ClientError;
 
 mod worker;
+mod worker_x;
 mod client_proxy;
 
 pub use client_proxy::ProxyClient;
 pub use client_proxy::TransactionError;
 
-use crate::types::WeightedItem;
-
 #[derive(Debug, Clone)]
 pub enum Request
 {
     GetNextEntry,
-    GetCurrentOrderPos,
+    GetScrapQuantity(i32),
     Backflush,
     Terminate,
 }
@@ -20,8 +19,8 @@ pub enum Request
 #[derive(Debug, Clone)]
 pub enum Response
 { 
-    GetNextEntry(Option<Entry>),
-    GetOrderPosCurrent(),
+    GetNextEntry(Entry),
+    GetScrapQuantity(f64),
     Backflush(),
     Terminate,
 }
@@ -30,7 +29,7 @@ pub enum Response
 pub enum ResponseError
 {
     Client(ClientError),
-    Error(String),
+    InvalidData(String),
 }
 
 impl From<ClientError> for ResponseError
@@ -41,17 +40,28 @@ impl From<ClientError> for ResponseError
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum GetNextEntryError
+{
+    NoWorkorder,
+}
+
 
 #[derive(Debug, Clone)]
 pub struct Entry
 {
-    pub doc_entry: u32,
-    
-    // key for accesing WorkorderPos
-    pub line_number: u32,
+    pub doc_entry: i32,
     
     /// Used to check WorkorderPos for updates in 
-    pub quantity_scrap: u32,
+    pub scrap_quantity: f64,
     
-    pub weighted_item: WeightedItem
+    pub bounds: Bounds
+}
+
+#[derive(Debug, Clone)]
+pub struct Bounds
+{
+    pub min:     f64,
+    pub max:     f64,
+    pub desired: f64
 }

@@ -142,7 +142,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 [[package]]
 name = "beas_bsl"
 version = "0.1.0"
-source = "git+https://github.com/qitechgmbh/beas-bsl.git?branch=main#ce05114bf3c530bd91aae722947a99e374966585"
+source = "git+https://github.com/qitechgmbh/beas-bsl.git?branch=main#1e979d5f2ec149cc99c394da091e42d2d2572f11"
 dependencies = [
  "serde",
  "serde_json",
