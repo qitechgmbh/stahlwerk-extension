@@ -1,9 +1,9 @@
 use std::{thread, time::Duration};
 
-use beas_bsl::{Client, ClientError};
+use beas_bsl::Client;
 use smol::channel::{Receiver, Sender, TryRecvError, TrySendError };
 
-use crate::ff01::{Response, worker_x::{get_next_entry, get_quantity_scrap}};
+use crate::ff01::{ Response, requests::{ get_next_entry, get_quantity_scrap } };
 
 use super::{Request, ResponseError};
 

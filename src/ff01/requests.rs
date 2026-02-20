@@ -2,13 +2,6 @@ use beas_bsl::{Client, ClientError, api::{FilterBuilder, Ordering, QueryOptions,
 
 use crate::ff01::{Bounds, Entry, ResponseError};
 
-fn data_error<T, M>(msg: M) -> Result<T, ResponseError>
-where
-    M: Into<String>,
-{
-    Err(ResponseError::InvalidData(msg.into()))
-}
-
 pub fn get_next_entry(client: &Client) -> Result<Entry, ResponseError>
 {
     // step 1: grab the next workorder that matches our criteria
@@ -35,7 +28,7 @@ pub fn get_next_entry(client: &Client) -> Result<Entry, ResponseError>
         None => return data_error(format!("No matching WorkorderRoutings for {}", doc_entry)),
     };
     
-    let resource_id = unpack_nullable(wo_routing.resource_id)?;
+    let resource_id = unpack_nullable(wo_routing.resource_id, "resource_id")?;
     
     if resource_id != "FF01"
     {
@@ -61,11 +54,15 @@ pub fn get_next_entry(client: &Client) -> Result<Entry, ResponseError>
     // step 4: get bounds
     println!("Step: 4");
     
-    let qcorder_measurement = unpack_nullable(get_qcorder_measurement(client, doc_entry)?)?;
+    let qcorder_measurement = 
+        unpack_nullable(
+            get_qcorder_measurement(client, doc_entry)?, 
+            "qcorder_measurement"
+        )?;
     
-    let min     = unpack_nullable(qcorder_measurement.minimal)?;
-    let max     = unpack_nullable(qcorder_measurement.maximum)?;
-    let desired = unpack_nullable(qcorder_measurement.desired_value)?;
+    let min     = unpack_nullable(qcorder_measurement.minimal, "min")?;
+    let max     = unpack_nullable(qcorder_measurement.maximum, "max")?;
+    let desired = unpack_nullable(qcorder_measurement.desired_value, "desired")?;
 
     let weight_bounds = Bounds { min, max, desired };
     
@@ -187,11 +184,18 @@ fn get_qcorder_measurement(client: &Client, doc_entry: i32) -> Result<Option<bea
     }
 }
 
-fn unpack_nullable<T>(value: Option<T>) -> Result<T, ResponseError>
+fn unpack_nullable<T>(value: Option<T>, name: &'static str) -> Result<T, ResponseError>
 {
     match value
     {
         Some(item) => Ok(item),
-        None       => return data_error("Received null..."),
+        None       => return data_error(format!("Received null for {}", name)),
     }
+}
+
+fn data_error<T, M>(msg: M) -> Result<T, ResponseError>
+where
+    M: Into<String>,
+{
+    Err(ResponseError::InvalidData(msg.into()))
 }

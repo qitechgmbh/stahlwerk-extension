@@ -1,7 +1,7 @@
 use beas_bsl::ClientError;
 
 mod worker;
-mod worker_x;
+mod requests;
 mod client_proxy;
 
 pub use client_proxy::ProxyClient;

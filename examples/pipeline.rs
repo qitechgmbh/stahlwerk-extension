@@ -1,5 +1,5 @@
 use beas_bsl::{ ClientConfig, ClientError };
-use stahlwerk_extension::{ProxyClient};
+use stahlwerk_extension::ProxyClient;
 
 // Example for happy path
 pub fn main() -> Result<(), ClientError>
@@ -8,7 +8,7 @@ pub fn main() -> Result<(), ClientError>
     
     let mut proxy = ProxyClient::new(config).unwrap();
     
-    loop 
+    loop
     {
         // user submits new workorder
         
