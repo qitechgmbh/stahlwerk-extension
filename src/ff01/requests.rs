@@ -1,152 +1,92 @@
-use beas_bsl::{Client, ClientError, api::{FilterBuilder, Ordering, QueryOptions, Workorder}};
+use beas_bsl::{
+    Client, 
+    TransactionError, api::{
+        BackflushRequest, FilterBuilder, QCOrderMeasurement, QueryOptions, WorkorderBom, WorkorderPosition, WorkorderRouting
+    }
+};
 
 use crate::ff01::{Bounds, Entry, ResponseError};
 
 pub fn get_next_entry(client: &Client) -> Result<Entry, ResponseError>
 {
-    // step 1: grab the next workorder that matches our criteria
-    println!("Step: 1");
-    
-    let workorder = match get_workorder(client)?
+    // Get Workorder Routing
+    let wo_routing = match get_workorder_routing(client)?
     {
         Some(workorder) => workorder,
-        None => return data_error("No Workorders"),
+        None => return data_error("No ready workorders"),
     };
-    
-    _ = workorder;
-    //let doc_entry = workorder.doc_entry;
-    
-    //TODO: remove later
-    let doc_entry: i32 = 50492;
-    
-    // step 2: validate resource-id
-    println!("Step: 2 ({})", doc_entry);
-    
-    let wo_routing = match get_workorder_routing(client, doc_entry)?
-    {
-        Some(workorder) => workorder,
-        None => return data_error(format!("No matching WorkorderRoutings for {}", doc_entry)),
+
+    let doc_entry = wo_routing.doc_entry;
+    let line_number = wo_routing.line_number;
+
+    // Get Workorder Bom
+    let Some(wo_bom) = get_workorder_bom(client, doc_entry, line_number)? else { 
+        return data_error(format!("No matching WorkorderRoutings for {}", doc_entry)); 
     };
-    
-    let resource_id = unpack_nullable(wo_routing.resource_id, "resource_id")?;
-    
-    if resource_id != "FF01"
-    {
-        let msg = format!("Invalid ResourceId. expected: FF01, received: {}", resource_id);
-        return data_error(msg);
-    }
-    
-    // step 3: Get current quantity_scrap from workorder-pos
-    println!("Step: 3");
-    
-    let wo_pos = match get_workorder_pos(client, doc_entry)?
+
+    let Some(item_code) = wo_bom.item_code else { 
+        return data_error(format!("ItemCode is null"));
+    };
+
+    let Some(whs_code) = wo_bom.whs_code else { 
+        return data_error(format!("ItemCode is null"));
+    };
+
+    // Get Workorder Pos
+    let wo_pos = match get_workorder_pos(client, doc_entry, line_number)?
     {
         Some(value) => value,
         None => todo!(),
     };
     
-    let quantity_scrap = match wo_pos.quantity_scrap 
+    let Some(scrap_quantity) = wo_pos.quantity_scrap else { 
+        return data_error(format!("ItemCode is null"));
+    };
+
+    // Get QCOrder Measurement
+    let qcorder_measurement = match get_qcorder_measurement(client, doc_entry, line_number)?
     {
         Some(value) => value,
         None => todo!(),
     };
-    
-    // step 4: get bounds
-    println!("Step: 4");
-    
-    let qcorder_measurement = 
-        unpack_nullable(
-            get_qcorder_measurement(client, doc_entry)?, 
-            "qcorder_measurement"
-        )?;
     
     let min     = unpack_nullable(qcorder_measurement.minimal, "min")?;
     let max     = unpack_nullable(qcorder_measurement.maximum, "max")?;
     let desired = unpack_nullable(qcorder_measurement.desired_value, "desired")?;
 
     let weight_bounds = Bounds { min, max, desired };
-    
-    // step 5: return result
-    Ok(Entry { doc_entry, scrap_quantity: quantity_scrap, weight_bounds })
-}
 
-pub fn get_quantity_scrap(client: &Client, doc_entry: i32) -> Result<f64, ClientError>
-{
-    let wo_pos = match get_workorder_pos(client, doc_entry)?
-    {
-        Some(value) => value,
-        None => todo!(),
+    // return result
+    let entry = Entry { 
+        doc_entry, 
+        line_number,
+        scrap_quantity, 
+        item_code,
+        whs_code,
+        weight_bounds,
     };
-    
-    match wo_pos.quantity_scrap 
-    {
-        Some(value) => Ok(value),
-        None => todo!(),
-    }
+
+    Ok(entry)
 }
 
-fn get_workorder(client: &Client) -> Result<Option<Workorder>, ClientError>
+fn get_workorder_routing(
+    client: &Client
+) -> Result<Option<WorkorderRouting>, TransactionError>
 {
     let filter = 
         FilterBuilder::new()
-        .equals("ApsStatus", true).and()
-        .equals("Closed", 0)
-        .build();
-
-    let options = 
-        QueryOptions::new()
-        .top(1)
-        .skip(0)
-        .order_by("DocEntry", Ordering::Descending)
-        .filter(filter);
-       
-    match client.request().production().workorder().get(options)
-    {
-        Ok(v)  => Ok(v.first().cloned()),
-        Err(e) => Err(e),
-    }
-}
-
-pub fn get_workorder_pos(client: &Client, doc_entry: i32) -> Result<Option<beas_bsl::api::WorkorderPosition>, ClientError>
-{
-    let filter = 
-        FilterBuilder::new()
-        .equals("DocEntry", doc_entry).and()
-        .equals("LineNumber", 10)
-        .build();
+            .equals("CurrentRunning", true).and()
+            .equals("ResourceId", "FF01").and()
+            .equals("Closed", false).and()
+            // filter only for the first step
+            .equals("LineNumber2", 10)
+            .build();
     
     let options = QueryOptions::new().filter(filter);
     
     let result = 
         client
-        .request()
-        .production()
-        .workorder_pos()
-        .get(options);
-        
-    match result
-    {
-        Ok(items) => Ok(items.first().cloned()),
-        Err(e) => Err(e),
-    }
-}
-
-fn get_workorder_routing(client: &Client, doc_entry: i32) -> Result<Option<beas_bsl::api::WorkorderRouting>, ClientError>
-{
-    let filter = 
-        FilterBuilder::new()
-        .equals("DocEntry", doc_entry)
-        .and()
-        .equals("LineNumber", 10)
-        .and()
-        .equals("LineNumber2", 10)
-        .build();
-    
-    let options = QueryOptions::new().filter(filter);
-    
-    let result = 
-        client
-        .request()
+        .single_request()
         .production()
         .workorder_routing()
         .get(options);
@@ -158,21 +98,91 @@ fn get_workorder_routing(client: &Client, doc_entry: i32) -> Result<Option<beas_
     }
 }
 
-fn get_qcorder_measurement(client: &Client, doc_entry: i32) -> Result<Option<beas_bsl::api::QCOrderMeasurement>, ClientError>
+fn get_workorder_bom(client: &Client, doc_entry: i32, line_number: i32) -> Result<Option<WorkorderBom>, TransactionError>
 {
     let filter = 
         FilterBuilder::new()
-        .equals("WoDocEntry", doc_entry).and()
-        .equals("WoLineNumber", 10).and()
-        .equals("LineNumber2", 10).and()
-        .equals("QCDescription", "Zuschnitt_Gewicht")
+            .equals("DocEntry", doc_entry)
+            .and()
+            .equals("LineNumber", line_number)
+            .and()
+            .equals("LineNumber2", 10)
+            .build();
+    
+    let options = QueryOptions::new().filter(filter);
+    
+    let result = 
+        client
+        .single_request()
+        .production()
+        .workorder_bom()
+        .get(options);
+        
+    match result
+    {
+        Ok(items) => Ok(items.first().cloned()),
+        Err(e) => Err(e),
+    }
+}
+
+fn get_workorder_pos(client: &Client, doc_entry: i32, line_number: i32) -> Result<Option<WorkorderPosition>, TransactionError>
+{
+    let filter = 
+        FilterBuilder::new()
+        .equals("DocEntry", doc_entry).and()
+        .equals("LineNumber", line_number)
         .build();
     
     let options = QueryOptions::new().filter(filter);
     
     let result = 
         client
-        .request()
+        .single_request()
+        .production()
+        .workorder_pos()
+        .get(options);
+        
+    match result
+    {
+        Ok(items) => Ok(items.first().cloned()),
+        Err(e) => Err(e),
+    }
+}
+
+pub fn get_scrap_quantity(
+    client: &Client, 
+    doc_entry: i32, 
+    line_number: i32
+) -> Result<f64, ResponseError>
+{
+    let wo_pos = match get_workorder_pos(client, doc_entry, line_number)?
+    {
+        Some(value) => value,
+        None => todo!(),
+    };
+    
+    let Some(scrap_quantity) = wo_pos.quantity_scrap else { 
+        return data_error(format!("ItemCode is null"));
+    };
+
+    Ok(scrap_quantity)
+}
+
+fn get_qcorder_measurement(client: &Client, doc_entry: i32, line_number: i32) -> Result<Option<QCOrderMeasurement>, TransactionError>
+{
+    let filter = 
+        FilterBuilder::new()
+        .equals("WoDocEntry", doc_entry).and()
+        .equals("WoLineNumber", line_number).and()
+        .equals("LineNumber2", 10).and()
+        .equals("QCDescription", "QiTech_Gewicht")
+        .build();
+    
+    let options = QueryOptions::new().filter(filter);
+    
+    let result = 
+        client
+        .single_request()
         .quality_control()
         .qcorder_measurement()
         .get(options);
@@ -181,6 +191,22 @@ fn get_qcorder_measurement(client: &Client, doc_entry: i32) -> Result<Option<bea
     {
         Ok(workorders) => Ok(workorders.first().cloned()),
         Err(e) => Err(e),
+    }
+}
+
+pub fn post_backflush(client: &Client, data: BackflushRequest) -> Result<(), ResponseError>
+{
+    let result = 
+        client
+        .single_request()
+        .production()
+        .backflush()
+        .post(data);
+            
+    match result
+    {
+        Ok(()) => Ok(()),
+        Err(e) => Err(ResponseError::ClientTransaction(e)),
     }
 }
 

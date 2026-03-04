@@ -1,20 +1,31 @@
-use beas_bsl::ClientError;
+pub use beas_bsl::TransactionError as ClientTransactionError;
+use beas_bsl::api::BackflushRequest;
+
+use crate::Bounds;
 
 mod worker;
 mod requests;
 mod client_proxy;
 
+use worker::Worker;
 pub use client_proxy::ProxyClient;
-pub use client_proxy::TransactionError;
 
-use crate::Bounds;
+#[derive(Debug)]
+pub enum TransactionError
+{
+    Pending,
+    ChannelFull,
+    ChannelClosed,
+    TagMismatch,
+    Response(ResponseError)
+}
 
 #[derive(Debug, Clone)]
 pub(crate) enum Request
 {
     GetNextEntry,
-    GetScrapQuantity(i32),
-    Backflush,
+    GetScrapQuantity(i32, i32),
+    Backflush(BackflushRequest),
     Terminate,
 }
 
@@ -23,22 +34,22 @@ pub(crate) enum Response
 { 
     GetNextEntry(Entry),
     GetScrapQuantity(f64),
-    Backflush(),
+    Backflush,
     Terminate,
 }
 
 #[derive(Debug)]
 pub enum ResponseError
 {
-    Client(ClientError),
+    ClientTransaction(ClientTransactionError),
     InvalidData(String),
 }
 
-impl From<ClientError> for ResponseError
+impl From<ClientTransactionError> for ResponseError
 {
-    fn from(err: ClientError) -> Self
+    fn from(err: ClientTransactionError) -> Self
     {
-        ResponseError::Client(err)
+        ResponseError::ClientTransaction(err)
     }
 }
 
@@ -46,9 +57,9 @@ impl From<ClientError> for ResponseError
 pub struct Entry
 {
     pub doc_entry: i32,
-    
-    /// Used to check WorkorderPos for updates in 
+    pub line_number: i32,
     pub scrap_quantity: f64,
-    
-    pub weight_bounds: Bounds
+    pub item_code: String,
+    pub whs_code: String,
+    pub weight_bounds: Bounds,
 }

@@ -1,20 +1,19 @@
 use std::thread;
 use std::mem::discriminant;
 
-use beas_bsl::Client;
-use beas_bsl::ClientConfig;
-use beas_bsl::ClientError;
+use smol::channel::{TryRecvError, TrySendError, Receiver, Sender, unbounded};
 
-use smol::channel::TryRecvError;
-use smol::channel::TrySendError;
-use smol::channel::{ Receiver, Sender, unbounded };
+use beas_bsl::{Client, ClientConfig, api::BackflushRequest, api::backflush::IssueLine};
 
-use crate::ff01::Entry;
-use crate::ff01::ResponseError;
-
-use super::Request;
-use super::Response;
-use super::worker::Worker;
+use super::{
+    Entry, 
+    Request, 
+    Response, 
+    Worker, 
+    TransactionError, 
+    ResponseError,
+    ClientTransactionError
+};
 
 #[derive(Debug, Clone)]
 pub struct ProxyClient
@@ -23,16 +22,6 @@ pub struct ProxyClient
     receiver: Receiver<Result<Response, ResponseError>>, 
     
     pending_transaction: Option<Request>
-}
-
-#[derive(Debug)]
-pub enum TransactionError
-{
-    Pending,
-    ChannelFull,
-    ChannelClosed,
-    TagMismatch,
-    Response(ResponseError)
 }
 
 impl From<TrySendError<Request>> for TransactionError
@@ -57,7 +46,7 @@ impl From<ResponseError> for TransactionError
 
 impl ProxyClient
 {
-    pub fn new(config: ClientConfig) -> Result<Self, ClientError>
+    pub fn new(config: ClientConfig) -> Result<Self, ClientTransactionError>
     {
         let client = Client::new(config)?;
         
@@ -91,9 +80,10 @@ impl ProxyClient
         }
     }
     
-    pub fn get_scrap_quantity(&mut self, entry: &Entry) -> Result<f64, TransactionError>
+    pub fn get_quantity_scrap(&mut self, entry: &Entry) -> Result<f64, TransactionError>
     {
-        match self.update_transaction(Request::GetScrapQuantity(entry.doc_entry))?
+        let request = Request::GetScrapQuantity(entry.doc_entry, entry.line_number);
+        match self.update_transaction(request)?
         {
             Response::GetScrapQuantity(v) => Ok(v),
             _ => Err(TransactionError::TagMismatch),
@@ -101,9 +91,35 @@ impl ProxyClient
     }
     
     /// TODO: figure out everything that is needed
-    pub fn finalize(&mut self) -> Result<Option<()>, TransactionError>
+    pub fn finalize(&mut self, 
+        entry: &Entry,
+        scrap_quantity:   f32,
+        counted_quantity: f32,
+    ) -> Result<(), TransactionError>
     {
-        todo!();
+        let issue_line = IssueLine {
+            line_number2: 10,
+            quantity:     counted_quantity,
+            item_code:    entry.item_code.to_owned(),
+            whs_code:     entry.whs_code.to_owned(),
+        };
+
+        let data = BackflushRequest {
+            doc_entry:      entry.doc_entry,
+            line_number:    entry.line_number,
+            doc_date:       None,
+            close_entry:    false,
+            quantity_good:  counted_quantity - scrap_quantity,
+            issue_lines:    vec![issue_line],
+            receipt_lines:  Vec::new(),
+        };
+
+        let request = Request::Backflush(data);
+        match self.update_transaction(request)?
+        {
+            Response::Backflush => Ok(()),
+            _ => Err(TransactionError::TagMismatch),
+        }
     }
     
     fn update_transaction(&mut self, request: Request) -> Result<Response, TransactionError>
@@ -119,11 +135,13 @@ impl ProxyClient
                 
                 match self.receiver.try_recv()
                 {
-                    Ok(result) => return Ok(result?),
+                    Ok(result) => 
+                    {
+                        self.pending_transaction = None;
+                        return Ok(result?)
+                    },
                     Err(error) =>
                     {
-                        println!("[MAIN] Failed to receive: {:?}", error);
-                        
                         match error
                         {
                             TryRecvError::Empty  => return Err(TransactionError::Pending),
@@ -134,11 +152,9 @@ impl ProxyClient
             },
             None => 
             {
-                println!("[MAIN] Sending request");
                 self.sender.try_send(request.clone())?;
                 self.pending_transaction = Some(request.clone());
                 
-                println!("[MAIN] Sent request");
                 return Err(TransactionError::Pending);
             },
         }

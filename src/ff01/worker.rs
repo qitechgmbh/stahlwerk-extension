@@ -3,7 +3,7 @@ use std::{thread, time::Duration};
 use beas_bsl::Client;
 use smol::channel::{Receiver, Sender, TryRecvError, TrySendError };
 
-use crate::ff01::{ Response, requests::{ get_next_entry, get_quantity_scrap } };
+use crate::ff01::{ Response, requests::{ get_next_entry, get_scrap_quantity, post_backflush } };
 
 use super::{Request, ResponseError};
 
@@ -52,9 +52,10 @@ impl Worker
                 Err(TryRecvError::Closed) => return Err(WorkerError::Closed),
             };
             
+            use Request::*;
             match request
             {
-                Request::GetNextEntry =>
+                GetNextEntry =>
                 {
                     match get_next_entry(&self.client)
                     {
@@ -62,19 +63,23 @@ impl Worker
                         Err(e) => self.send(Err(e))?,
                     };
                 },
-                Request::GetScrapQuantity(doc_entry) => 
+                GetScrapQuantity(doc_entry, line_number) => 
                 {
-                    match get_quantity_scrap(&self.client, doc_entry)
+                    match get_scrap_quantity(&self.client, doc_entry, line_number)
                     {
                         Ok(v)  => self.send(Ok(Response::GetScrapQuantity(v)))?,
-                        Err(e) => self.send(Err(ResponseError::Client(e)))?,
+                        Err(e) => self.send(Err(e))?,
                     };
                 },
-                Request::Backflush => 
+                Backflush(data) => 
                 {
-                    
+                    match post_backflush(&self.client, data)
+                    {
+                        Ok(v)  => self.send(Ok(Response::Backflush))?,
+                        Err(e) => self.send(Err(e))?,
+                    };
                 },
-                Request::Terminate => return Ok(()),
+                Terminate => return Ok(()),
             }   
         }
     }
