@@ -1,22 +1,22 @@
 use beas_bsl::{
     Client, 
     TransactionError, api::{
-        BackflushRequest, FilterBuilder, QCOrderMeasurement, QueryOptions, WorkorderBom, WorkorderPosition, WorkorderRouting
+        FilterBuilder, QCOrderMeasurement, QueryOptions, TimeReceipt, WorkorderBom, WorkorderPosition, WorkorderRouting, time_receipt
     }
 };
 
-use crate::ff01::{Bounds, Entry, ResponseError};
+use crate::ff01::{TargetRange, Entry, ResponseError};
 
-pub fn get_next_entry(client: &Client) -> Result<Entry, ResponseError>
+pub fn get_next_entry(client: &Client) -> Result<Option<Entry>, ResponseError>
 {
     // Get Workorder Routing
     let wo_routing = match get_workorder_routing(client)?
     {
         Some(workorder) => workorder,
-        None => return data_error("No ready workorders"),
+        None => return Ok(None),
     };
 
-    let doc_entry = wo_routing.doc_entry;
+    let doc_entry   = wo_routing.doc_entry;
     let line_number = wo_routing.line_number;
 
     // Get Workorder Bom
@@ -29,18 +29,13 @@ pub fn get_next_entry(client: &Client) -> Result<Entry, ResponseError>
     };
 
     let Some(whs_code) = wo_bom.whs_code else { 
-        return data_error(format!("ItemCode is null"));
+        return data_error(format!("WhsCode is null"));
     };
 
-    // Get Workorder Pos
-    let wo_pos = match get_workorder_pos(client, doc_entry, line_number)?
-    {
-        Some(value) => value,
-        None => todo!(),
-    };
-    
-    let Some(scrap_quantity) = wo_pos.quantity_scrap else { 
-        return data_error(format!("ItemCode is null"));
+    // Get ScrapQuantity
+    let scrap_quantity: f64 = {
+        let opt_value = get_scrap_quantity(client, doc_entry, line_number)?;
+        opt_value.unwrap_or(0.0)
     };
 
     // Get QCOrder Measurement
@@ -54,7 +49,7 @@ pub fn get_next_entry(client: &Client) -> Result<Entry, ResponseError>
     let max     = unpack_nullable(qcorder_measurement.maximum, "max")?;
     let desired = unpack_nullable(qcorder_measurement.desired_value, "desired")?;
 
-    let weight_bounds = Bounds { min, max, desired };
+    let weight_bounds = TargetRange { min, max, desired };
 
     // return result
     let entry = Entry { 
@@ -66,7 +61,7 @@ pub fn get_next_entry(client: &Client) -> Result<Entry, ResponseError>
         weight_bounds,
     };
 
-    Ok(entry)
+    Ok(Some(entry))
 }
 
 fn get_workorder_routing(
@@ -78,7 +73,6 @@ fn get_workorder_routing(
             .equals("CurrentRunning", true).and()
             .equals("ResourceId", "FF01").and()
             .equals("Closed", false).and()
-            // filter only for the first step
             .equals("LineNumber2", 10)
             .build();
     
@@ -102,27 +96,21 @@ fn get_workorder_bom(client: &Client, doc_entry: i32, line_number: i32) -> Resul
 {
     let filter = 
         FilterBuilder::new()
-            .equals("DocEntry", doc_entry)
-            .and()
-            .equals("LineNumber", line_number)
-            .and()
+            .equals("DocEntry", doc_entry).and()
+            .equals("LineNumber", line_number).and()
             .equals("LineNumber2", 10)
             .build();
     
     let options = QueryOptions::new().filter(filter);
     
-    let result = 
+    let items = 
         client
         .single_request()
         .production()
         .workorder_bom()
-        .get(options);
+        .get(options)?;
         
-    match result
-    {
-        Ok(items) => Ok(items.first().cloned()),
-        Err(e) => Err(e),
-    }
+    Ok(items.first().cloned())
 }
 
 fn get_workorder_pos(client: &Client, doc_entry: i32, line_number: i32) -> Result<Option<WorkorderPosition>, TransactionError>
@@ -153,19 +141,42 @@ pub fn get_scrap_quantity(
     client: &Client, 
     doc_entry: i32, 
     line_number: i32
-) -> Result<f64, ResponseError>
+) -> Result<Option<f64>, ResponseError>
 {
-    let wo_pos = match get_workorder_pos(client, doc_entry, line_number)?
-    {
-        Some(value) => value,
-        None => todo!(),
-    };
-    
-    let Some(scrap_quantity) = wo_pos.quantity_scrap else { 
-        return data_error(format!("ItemCode is null"));
-    };
+    for time_receipt in get_time_receipts(client, doc_entry, line_number)?
+    {   
+        if let Some(quantity_scrap) = time_receipt.quantity_scrap {
+            if quantity_scrap == 0.0 { continue; }
+            return Ok(Some(quantity_scrap));
+        }
+    }
 
-    Ok(scrap_quantity)
+    Ok(None)
+}
+
+fn get_time_receipts(
+    client: &Client, 
+    doc_entry: i32, 
+    line_number: i32
+) -> Result<Vec<TimeReceipt>, TransactionError> 
+{
+    let filter = 
+        FilterBuilder::new()
+        .equals("DocEntry", doc_entry).and()
+        .equals("LineNumber", line_number).and()
+        .equals("LineNumber2", 10)
+        .build();
+
+    let options = QueryOptions::new().filter(filter);
+    
+    let result = 
+        client
+        .single_request()
+        .production()
+        .time_receipt()
+        .get(options);
+
+    result
 }
 
 fn get_qcorder_measurement(client: &Client, doc_entry: i32, line_number: i32) -> Result<Option<QCOrderMeasurement>, TransactionError>
@@ -194,20 +205,19 @@ fn get_qcorder_measurement(client: &Client, doc_entry: i32, line_number: i32) ->
     }
 }
 
-pub fn post_backflush(client: &Client, data: BackflushRequest) -> Result<(), ResponseError>
+pub fn post_time_receipt(
+    client: &Client, 
+    request: time_receipt::post::Request
+) -> Result<time_receipt::post::Response, ResponseError>
 {
-    let result = 
+    let response = 
         client
         .single_request()
         .production()
-        .backflush()
-        .post(data);
+        .time_receipt()
+        .post(request)?;
             
-    match result
-    {
-        Ok(()) => Ok(()),
-        Err(e) => Err(ResponseError::ClientTransaction(e)),
-    }
+    Ok(response)
 }
 
 fn unpack_nullable<T>(value: Option<T>, name: &'static str) -> Result<T, ResponseError>

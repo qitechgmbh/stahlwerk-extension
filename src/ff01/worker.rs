@@ -1,11 +1,17 @@
 use std::{thread, time::Duration};
 
 use beas_bsl::Client;
-use smol::channel::{Receiver, Sender, TryRecvError, TrySendError };
+use smol::channel::{TryRecvError, TrySendError};
 
-use crate::ff01::{ Response, requests::{ get_next_entry, get_scrap_quantity, post_backflush } };
+use crate::ff01::{ 
+    Response, WorkerReceiver, WorkerSender, requests::{ 
+        get_next_entry, 
+        get_scrap_quantity, 
+        post_time_receipt 
+    } 
+};
 
-use super::{Request, ResponseError};
+use super::{InternalRequest, ResponseError};
 
 #[derive(Debug)]
 pub enum WorkerError
@@ -17,8 +23,8 @@ pub enum WorkerError
 pub struct Worker
 {
     client:   Client,
-    sender:   Sender<Result<Response, ResponseError>>, 
-    receiver: Receiver<Request>, 
+    sender:   WorkerSender, 
+    receiver: WorkerReceiver, 
 }
 
 impl Worker
@@ -27,13 +33,11 @@ impl Worker
     /// Error
     const MAX_SEND_ATTEMPTS:   u32 = 50; //TODO: pass via params in new
     const SEND_TIMEOUT_MILLIS: u64 = 50;
-    
-    pub fn new(
-        client: Client, 
-        receiver: Receiver<Request>, 
-        sender: Sender<Result<Response, ResponseError>>
-    ) -> Self
-    { 
+}
+
+impl Worker
+{
+    pub fn new(client: Client, receiver: WorkerReceiver, sender: WorkerSender) -> Self { 
         Self { client, receiver, sender } 
     }
     
@@ -52,30 +56,24 @@ impl Worker
                 Err(TryRecvError::Closed) => return Err(WorkerError::Closed),
             };
             
-            use Request::*;
+            use InternalRequest::*;
             match request
             {
-                GetNextEntry =>
-                {
-                    match get_next_entry(&self.client)
-                    {
+                GetNextEntry => {
+                    match get_next_entry(&self.client) {
                         Ok(v)  => self.send(Ok(Response::GetNextEntry(v)))?,
                         Err(e) => self.send(Err(e))?,
                     };
                 },
-                GetScrapQuantity(doc_entry, line_number) => 
-                {
-                    match get_scrap_quantity(&self.client, doc_entry, line_number)
-                    {
+                GetScrapQuantity(doc_entry, line_number) => {
+                    match get_scrap_quantity(&self.client, doc_entry, line_number) {
                         Ok(v)  => self.send(Ok(Response::GetScrapQuantity(v)))?,
                         Err(e) => self.send(Err(e))?,
                     };
                 },
-                Backflush(data) => 
-                {
-                    match post_backflush(&self.client, data)
-                    {
-                        Ok(v)  => self.send(Ok(Response::Backflush))?,
+                Finalize(data) => {
+                    match post_time_receipt(&self.client, data) {
+                        Ok(_)  => self.send(Ok(Response::Finalize))?,
                         Err(e) => self.send(Err(e))?,
                     };
                 },
@@ -87,30 +85,25 @@ impl Worker
     /// attempt to send a message to the owning proxy_client. If number of attempts
     /// exceeds limit terminate return a timeout error which would terminate
     /// the worker, since no connection to the owning Object can be established.
-    fn send(&self, payload: Result<Response, ResponseError>) -> Result<(), WorkerError>
+    fn send(&self, mut payload: Result<Response, ResponseError>) -> Result<(), WorkerError>
     {
-        let mut attempts: u32 = 0;
-        let mut payload = payload;
-        
-        loop
-        {
-            match self.sender.try_send(payload)
-            {
+        for attempt in 0..=Self::MAX_SEND_ATTEMPTS {
+            match self.sender.try_send(payload) {
                 Ok(_) => return Ok(()),
                 Err(TrySendError::Closed(_)) => return Err(WorkerError::Closed),
                 Err(TrySendError::Full(data)) => 
                 {
-                    if attempts >= Self::MAX_SEND_ATTEMPTS
-                    {
+                    if attempt == Self::MAX_SEND_ATTEMPTS {
                         return Err(WorkerError::Timeout);
                     }
-                    
+
                     payload = data;
-                    attempts += 1;
                     thread::sleep(Duration::from_millis(Self::SEND_TIMEOUT_MILLIS));
-                    continue;
                 }
             }
         }
+
+        // This point should never be reached
+        Err(WorkerError::Timeout)
     }
 }

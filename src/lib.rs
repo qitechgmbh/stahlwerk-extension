@@ -1,13 +1,9 @@
 pub use beas_bsl::ClientConfig;
 
-mod ff01;
-pub use ff01::Entry;
-pub use ff01::ProxyClient;
-pub use ff01::TransactionError;
-pub use ff01::ClientTransactionError;
+pub mod ff01;
 
 #[derive(Debug, Clone)]
-pub struct Bounds
+pub struct TargetRange
 {
     pub min:     f64,
     pub max:     f64,

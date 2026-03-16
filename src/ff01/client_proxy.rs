@@ -1,16 +1,18 @@
 use std::thread;
 use std::mem::discriminant;
 
-use smol::channel::{TryRecvError, TrySendError, Receiver, Sender, unbounded};
+use smol::channel::{TryRecvError, Receiver, Sender, unbounded};
 
-use beas_bsl::{Client, ClientConfig, api::BackflushRequest, api::backflush::IssueLine};
+use beas_bsl::{Client, ClientConfig};
+
+use crate::ff01::Request;
 
 use super::{
     Entry, 
-    Request, 
+    InternalRequest, 
     Response, 
     Worker, 
-    TransactionError, 
+    ProxyTransactionError, 
     ResponseError,
     ClientTransactionError
 };
@@ -18,39 +20,30 @@ use super::{
 #[derive(Debug, Clone)]
 pub struct ProxyClient
 {
-    sender:   Sender<Request>, 
+    sender:   Sender<InternalRequest>, 
     receiver: Receiver<Result<Response, ResponseError>>, 
-    
-    pending_transaction: Option<Request>
+    state:    State,
 }
 
-impl From<TrySendError<Request>> for TransactionError
+pub struct RequestMaker<'a>
 {
-    fn from(err: TrySendError<Request>) -> Self
-    {
-        match err
-        {
-            TrySendError::Full(_)   => TransactionError::ChannelFull,
-            TrySendError::Closed(_) => TransactionError::ChannelClosed,
-        }
-    }
+    state: &'a mut State,
 }
 
-impl From<ResponseError> for TransactionError
+#[derive(Debug, Clone)]
+pub enum State 
 {
-    fn from(err: ResponseError) -> Self
-    {
-        TransactionError::Response(err)
-    }
+    Idle,
+    Sending(InternalRequest),
+    Pending,
 }
 
 impl ProxyClient
 {
-    pub fn new(config: ClientConfig) -> Result<Self, ClientTransactionError>
-    {
+    pub fn new(config: ClientConfig) -> Result<Self, ClientTransactionError> {
         let client = Client::new(config)?;
         
-        let (client_sender, worker_receiver) = unbounded::<Request>();
+        let (client_sender, worker_receiver) = unbounded::<InternalRequest>();
         let (worker_sender, client_receiver) = unbounded::<Result<Response, ResponseError>>();
         
         let worker = Worker::new(client, worker_receiver, worker_sender);
@@ -59,104 +52,86 @@ impl ProxyClient
         {
             match worker.run()
             {
-                Ok(_) => eprintln!("[WORK] shutdown."),
-                Err(e) => eprintln!("[WORK] aborted: {:?}", e),
+                Ok(_)  => eprintln!("[WORKER] shutdown."),
+                Err(e) => eprintln!("[WORKER] aborted: {:?}", e),
             }
         });
         
         // discard handle to get independent thread
-        // TODO: maybe handle termination gracefully?
         _ = worker_handle;
         
-        Ok(Self { sender: client_sender, receiver: client_receiver, pending_transaction: None })
+        Ok(Self { sender: client_sender, receiver: client_receiver, state: State::Idle })
     }
     
-    pub fn get_next_entry(&mut self) -> Result<Entry, TransactionError>
-    {
-        match self.update_transaction(Request::GetNextEntry)? 
-        {
-            Response::GetNextEntry(entry) => Ok(entry),
-            _ => Err(TransactionError::TagMismatch)
-        }
+    pub fn can_queue_request(&mut self) -> bool{
+        return matches!(self.state, State::Idle);
     }
-    
-    pub fn get_quantity_scrap(&mut self, entry: &Entry) -> Result<f64, TransactionError>
-    {
-        let request = Request::GetScrapQuantity(entry.doc_entry, entry.line_number);
-        match self.update_transaction(request)?
-        {
-            Response::GetScrapQuantity(v) => Ok(v),
-            _ => Err(TransactionError::TagMismatch),
-        }
-    }
-    
-    /// TODO: figure out everything that is needed
-    pub fn finalize(&mut self, 
-        entry: &Entry,
-        scrap_quantity:   f32,
-        counted_quantity: f32,
-    ) -> Result<(), TransactionError>
-    {
-        let issue_line = IssueLine {
-            line_number2: 10,
-            quantity:     counted_quantity,
-            item_code:    entry.item_code.to_owned(),
-            whs_code:     entry.whs_code.to_owned(),
-        };
 
-        let data = BackflushRequest {
-            doc_entry:      entry.doc_entry,
-            line_number:    entry.line_number,
-            doc_date:       None,
-            close_entry:    false,
-            quantity_good:  counted_quantity - scrap_quantity,
-            issue_lines:    vec![issue_line],
-            receipt_lines:  Vec::new(),
-        };
-
-        let request = Request::Backflush(data);
-        match self.update_transaction(request)?
-        {
-            Response::Backflush => Ok(()),
-            _ => Err(TransactionError::TagMismatch),
-        }
+    pub fn queue_request(&mut self, request: Request) -> Result<(), ()> {
+        if !self.can_queue_request() { return Err(()); }
+        self.state = State::Sending(request.to_internal());
+        Ok(())
     }
-    
-    fn update_transaction(&mut self, request: Request) -> Result<Response, TransactionError>
+
+    pub fn poll_response(&mut self) -> Result<Response, ProxyTransactionError>
     {
-        match &self.pending_transaction
-        {
-            Some(pending_request) =>
-            {
-                if discriminant(pending_request) != discriminant(&request)
-                {
-                    return Err(TransactionError::TagMismatch);
-                }
-                
-                match self.receiver.try_recv()
-                {
-                    Ok(result) => 
-                    {
-                        self.pending_transaction = None;
-                        return Ok(result?)
+        use State::*;
+
+        match &self.state {
+            Idle => Err(ProxyTransactionError::NoPendingRequest),
+            Sending(request) => {
+                self.sender.try_send(request.clone())?;
+                self.state = Pending;
+                Err(ProxyTransactionError::Pending)
+            },
+            Pending => {
+                match self.receiver.try_recv() {
+                    Ok(result) => {
+                        self.state = Idle;
+                        Ok(result?)
                     },
-                    Err(error) =>
-                    {
-                        match error
-                        {
-                            TryRecvError::Empty  => return Err(TransactionError::Pending),
-                            TryRecvError::Closed => return Err(TransactionError::ChannelClosed),
+                    Err(error) => {
+                        match error {
+                            TryRecvError::Empty  => Err(ProxyTransactionError::Pending),
+                            TryRecvError::Closed => Err(ProxyTransactionError::ChannelClosed),
                         }
                     },
                 }
             },
-            None => 
-            {
-                self.sender.try_send(request.clone())?;
-                self.pending_transaction = Some(request.clone());
-                
-                return Err(TransactionError::Pending);
-            },
         }
+    }
+
+    pub fn finalize(&mut self, 
+        entry: &Entry,
+        counted_quantity: u32,
+    ) -> Result<(), ProxyTransactionError>
+    {
+        // let quantity_good = counted_quantity - entry.scrap_quantity;
+// 
+        // let issue_line = IssueLine {
+        //     line_number2: 10,
+        //     quantity:     counted_quantity as f32,
+        //     item_code:    entry.item_code.to_owned(),
+        //     whs_code:     entry.whs_code.to_owned(),
+        // };
+// 
+        // let data = BackflushRequest {
+        //     doc_entry:      entry.doc_entry,
+        //     line_number:    entry.line_number,
+        //     doc_date:       None,
+        //     close_entry:    false,
+        //     quantity_good:  counted_quantity - entry.scrap_quantity,
+        //     issue_lines:    vec![issue_line],
+        //     receipt_lines:  Vec::new(),
+        // };
+// 
+        // let request = Request::Backflush(data);
+        // match self.update_transaction(request)?
+        // {
+        //     Response::Backflush => Ok(()),
+        //     _ => Err(TransactionError::TagMismatch),
+        // }
+
+        Ok(())
     }
 }
