@@ -11,5 +11,5 @@ smol       = "2.0.2"
 
 beas_bsl = { git = "https://github.com/qitechgmbh/beas-bsl.git", branch = "main" }
 
-ratatui = "0.30.0"
-crossterm = "0.29.0"
+# ratatui = "0.30.0"
+# crossterm = "0.29.0"
