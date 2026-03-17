@@ -31,9 +31,7 @@ pub fn get_next_entry(client: &Client) -> Result<Option<Entry>, ResponseError>
     let Some(whs_code) = wo_bom.whs_code else { 
         return data_error("WhsCode is null".to_string());
     };
-
-    let scrap_quantity: f64 = 0.0; 
-
+    
     // Get QCOrder Measurement
     let qcorder_measurement = match get_qcorder_measurement(client, doc_entry, line_number)?
     {
@@ -51,7 +49,6 @@ pub fn get_next_entry(client: &Client) -> Result<Option<Entry>, ResponseError>
     let entry = Entry { 
         doc_entry, 
         line_number,
-        scrap_quantity, 
         item_code,
         whs_code,
         weight_bounds,

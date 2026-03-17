@@ -1,5 +1,5 @@
 pub use beas_bsl::TransactionError as ClientTransactionError;
-use beas_bsl::api::Date;
+use beas_bsl::api::{Date, Time};
 use beas_bsl::api::{time_receipt};
 
 use crate::TargetRange;
@@ -30,7 +30,7 @@ pub enum Request<'a>
 {
     GetNextEntry,
     GetScrapQuantity(&'a Entry),
-    Finalize(&'a Entry, u32),
+    Finalize(FinalizeRequest),
 }
 
 impl<'a> Request<'a>
@@ -43,25 +43,27 @@ impl<'a> Request<'a>
                 InternalRequest::GetNextEntry,
             GetScrapQuantity(entry) => 
                 InternalRequest::GetScrapQuantity(entry.doc_entry, entry.line_number),
-            Finalize(entry, quantity_counted) => {
+            Finalize(request) => {
 
-                let quantity_good = quantity_counted as f64 - entry.scrap_quantity;
+                let quantity_good = request.quantity_counted as f64 - request.quantity_scrap;
                 let quantity_good = quantity_good.max(0.0);
 
+                // doc_entry, personnel_id, start_date, end_date, from_time, to_time
+
                 let request = time_receipt::post::Request {
-                    doc_entry:          entry.doc_entry,
+                    doc_entry:          request.doc_entry,
                     line_number:        10,
                     line_number2:       10,
                     line_number3:       Some(0),
                     time_type:          Some("A".to_string()),
                     resource_id:        Some("FF01".to_string()),
                     quantity_good:      Some(quantity_good),
-                    personnel_id:       "04711".to_string(),
+                    personnel_id:       request.personnel_id,
                     quantity_scrap:     Some(0.0),
-                    start_date:         Some(Date { year: 2026, month: 03, day: 12 }),
-                    end_date:           Some(Date { year: 2026, month: 03, day: 12 }),
-                    from_time:          Some("12:00".to_string()),
-                    to_time:            Some("15:00".to_string()),
+                    start_date:         Some(request.start_date),
+                    end_date:           Some(request.end_date),
+                    from_time:          Some(request.from_time),
+                    to_time:            Some(request.to_time),
                     close_entry:        Some(true),
                     manual_booking:     Some(false),
                     duration:           Some(60),
@@ -98,9 +100,20 @@ pub struct Entry
 {
     pub doc_entry:      i32,
     pub line_number:    i32,
-    pub scrap_quantity: f64,
     pub item_code:      String,
     pub whs_code:       String,
     pub weight_bounds:  TargetRange, 
-    pub personnel_id:   String,
+}
+
+#[derive(Debug, Clone)]
+pub struct FinalizeRequest {
+    pub doc_entry: i32,
+    pub personnel_id: String,
+    pub start_date: Date,
+    pub end_date: Date,
+    pub from_time: Time,
+    pub to_time: Time,
+
+    pub quantity_scrap: f64,
+    pub quantity_counted:  u32,
 }
