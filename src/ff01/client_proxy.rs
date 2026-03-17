@@ -1,5 +1,4 @@
 use std::thread;
-use std::mem::discriminant;
 
 use smol::channel::{TryRecvError, Receiver, Sender, unbounded};
 
@@ -8,7 +7,6 @@ use beas_bsl::{Client, ClientConfig};
 use crate::ff01::Request;
 
 use super::{
-    Entry, 
     InternalRequest, 
     Response, 
     Worker, 
@@ -64,7 +62,11 @@ impl ProxyClient
     }
     
     pub fn can_queue_request(&mut self) -> bool{
-        return matches!(self.state, State::Idle);
+        matches!(self.state, State::Idle)
+    }
+
+    pub fn has_pending_request(&mut self) -> bool{
+        !self.can_queue_request()
     }
 
     pub fn queue_request(&mut self, request: Request) -> Result<(), ()> {
@@ -99,39 +101,5 @@ impl ProxyClient
                 }
             },
         }
-    }
-
-    pub fn finalize(&mut self, 
-        entry: &Entry,
-        counted_quantity: u32,
-    ) -> Result<(), ProxyTransactionError>
-    {
-        // let quantity_good = counted_quantity - entry.scrap_quantity;
-// 
-        // let issue_line = IssueLine {
-        //     line_number2: 10,
-        //     quantity:     counted_quantity as f32,
-        //     item_code:    entry.item_code.to_owned(),
-        //     whs_code:     entry.whs_code.to_owned(),
-        // };
-// 
-        // let data = BackflushRequest {
-        //     doc_entry:      entry.doc_entry,
-        //     line_number:    entry.line_number,
-        //     doc_date:       None,
-        //     close_entry:    false,
-        //     quantity_good:  counted_quantity - entry.scrap_quantity,
-        //     issue_lines:    vec![issue_line],
-        //     receipt_lines:  Vec::new(),
-        // };
-// 
-        // let request = Request::Backflush(data);
-        // match self.update_transaction(request)?
-        // {
-        //     Response::Backflush => Ok(()),
-        //     _ => Err(TransactionError::TagMismatch),
-        // }
-
-        Ok(())
     }
 }

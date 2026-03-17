@@ -9,3 +9,9 @@ pub struct TargetRange
     pub max:     f64,
     pub desired: f64
 }
+
+impl TargetRange {
+    pub fn in_bounds(&self, value: f64) -> bool {
+        value >= self.min && value <= self.max
+    }
+}

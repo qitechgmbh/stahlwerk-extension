@@ -45,7 +45,8 @@ impl<'a> Request<'a>
                 InternalRequest::GetScrapQuantity(entry.doc_entry, entry.line_number),
             Finalize(entry, quantity_counted) => {
 
-                let quantity_good: f64 = quantity_counted as f64 - entry.scrap_quantity;
+                let quantity_good = quantity_counted as f64 - entry.scrap_quantity;
+                let quantity_good = quantity_good.max(0.0);
 
                 let request = time_receipt::post::Request {
                     doc_entry:          entry.doc_entry,
@@ -65,7 +66,7 @@ impl<'a> Request<'a>
                     manual_booking:     Some(false),
                     duration:           Some(60),
                     calculate_duration: Some(false),
-                    remarks:            Some("Hello World".to_string()),
+                    remarks:            Some("QiTech-Control".to_string()),
                     ..Default::default()
                 };
 
@@ -100,5 +101,6 @@ pub struct Entry
     pub scrap_quantity: f64,
     pub item_code:      String,
     pub whs_code:       String,
-    pub weight_bounds:  TargetRange,
+    pub weight_bounds:  TargetRange, 
+    pub personnel_id:   String,
 }
