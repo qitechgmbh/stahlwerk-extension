@@ -6,7 +6,7 @@ use smol::channel::{TryRecvError, TrySendError};
 use crate::ff01::{ 
     Response, WorkerReceiver, WorkerSender, requests::{ 
         get_next_entry, 
-        get_scrap_quantity, 
+        get_worker_submission, 
         post_time_receipt 
     } 
 };
@@ -65,9 +65,9 @@ impl Worker
                         Err(e) => self.send(Err(e))?,
                     };
                 },
-                GetScrapQuantity(doc_entry, line_number) => {
-                    match get_scrap_quantity(&self.client, doc_entry, line_number) {
-                        Ok(v)  => self.send(Ok(Response::GetScrapQuantity(v)))?,
+                GetWorkerSubmission(doc_entry, line_number) => {
+                    match get_worker_submission(&self.client, doc_entry, line_number) {
+                        Ok(v)  => self.send(Ok(Response::GetWorkerSubmission(v)))?,
                         Err(e) => self.send(Err(e))?,
                     };
                 },

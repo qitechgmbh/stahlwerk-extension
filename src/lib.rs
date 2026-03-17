@@ -1,4 +1,6 @@
 pub use beas_bsl::ClientConfig;
+pub use beas_bsl::api::Date;
+pub use beas_bsl::api::Time;
 
 pub mod ff01;
 

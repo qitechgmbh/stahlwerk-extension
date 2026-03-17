@@ -29,7 +29,7 @@ type TryRecvError    = smol::channel::TryRecvError;
 pub enum Request<'a>
 {
     GetNextEntry,
-    GetScrapQuantity(&'a Entry),
+    GetWorkerSubmission(&'a Entry),
     Finalize(FinalizeRequest),
 }
 
@@ -41,14 +41,14 @@ impl<'a> Request<'a>
         match self {
             GetNextEntry => 
                 InternalRequest::GetNextEntry,
-            GetScrapQuantity(entry) => 
-                InternalRequest::GetScrapQuantity(entry.doc_entry, entry.line_number),
+            GetWorkerSubmission(entry) => 
+                InternalRequest::GetWorkerSubmission(entry.doc_entry, entry.line_number),
             Finalize(request) => {
 
                 let quantity_good = request.quantity_counted as f64 - request.quantity_scrap;
                 let quantity_good = quantity_good.max(0.0);
 
-                // doc_entry, personnel_id, start_date, end_date, from_time, to_time
+                let duration = request.from_time.compute_duration(request.to_time);
 
                 let request = time_receipt::post::Request {
                     doc_entry:          request.doc_entry,
@@ -66,7 +66,7 @@ impl<'a> Request<'a>
                     to_time:            Some(request.to_time),
                     close_entry:        Some(true),
                     manual_booking:     Some(false),
-                    duration:           Some(60),
+                    duration:           Some(duration.as_secs_f32()),
                     calculate_duration: Some(false),
                     remarks:            Some("QiTech-Control".to_string()),
                     ..Default::default()
@@ -82,7 +82,7 @@ impl<'a> Request<'a>
 pub(crate) enum InternalRequest
 {
     GetNextEntry,
-    GetScrapQuantity(i32, i32),
+    GetWorkerSubmission(i32, i32),
     Finalize(time_receipt::post::Request),
     Terminate,
 }
@@ -91,7 +91,7 @@ pub(crate) enum InternalRequest
 pub enum Response
 { 
     GetNextEntry(Option<Entry>),
-    GetScrapQuantity(Option<f64>),
+    GetWorkerSubmission(Option<(String, f64)>),
     Finalize,
 }
 

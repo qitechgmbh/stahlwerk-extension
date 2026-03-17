@@ -31,7 +31,7 @@ pub fn get_next_entry(client: &Client) -> Result<Option<Entry>, ResponseError>
     let Some(whs_code) = wo_bom.whs_code else { 
         return data_error("WhsCode is null".to_string());
     };
-    
+
     // Get QCOrder Measurement
     let qcorder_measurement = match get_qcorder_measurement(client, doc_entry, line_number)?
     {
@@ -130,18 +130,27 @@ fn get_workorder_pos(client: &Client, doc_entry: i32, line_number: i32) -> Resul
     }
 }
 
-pub fn get_scrap_quantity(
+pub fn get_worker_submission(
     client: &Client, 
     doc_entry: i32, 
     line_number: i32
-) -> Result<Option<f64>, ResponseError>
+) -> Result<Option<(String, f64)>, ResponseError>
 {
     for time_receipt in get_time_receipts(client, doc_entry, line_number)?
     {   
-        if let Some(quantity_scrap) = time_receipt.quantity_scrap {
-            if quantity_scrap == 0.0 { continue; }
-            return Ok(Some(quantity_scrap));
+        let Some(quantity_scrap) = time_receipt.quantity_scrap else {
+            continue;
+        };
+
+        if quantity_scrap == 0.0 {
+            continue;
         }
+
+        let Some(personnel_id) = time_receipt.personnel_id else {
+            continue;
+        };
+
+        return Ok(Some((personnel_id, quantity_scrap)));
     }
 
     Ok(None)
