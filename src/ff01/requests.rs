@@ -36,7 +36,7 @@ pub fn get_next_entry(client: &Client) -> Result<Option<Entry>, ResponseError>
     let qcorder_measurement = match get_qcorder_measurement(client, doc_entry, line_number)?
     {
         Some(value) => value,
-        None => return Ok(None),
+        None => return data_error("No QCOrderMeasurement".to_string()),
     };
     
     let min     = unpack_nullable(qcorder_measurement.minimal, "min")?;
