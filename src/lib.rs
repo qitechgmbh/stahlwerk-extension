@@ -1,10 +1,12 @@
+use serde::Serialize;
+
 pub use beas_bsl::ClientConfig;
 pub use beas_bsl::api::Date;
 pub use beas_bsl::api::Time;
 
 pub mod ff01;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TargetRange
 {
     pub min:     f64,

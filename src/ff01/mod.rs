@@ -1,6 +1,7 @@
 pub use beas_bsl::TransactionError as ClientTransactionError;
 use beas_bsl::api::{Date, Time};
 use beas_bsl::api::{time_receipt};
+use serde::Serialize;
 
 use crate::TargetRange;
 
@@ -95,7 +96,7 @@ pub enum Response
     Finalize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Entry
 {
     pub doc_entry:      i32,
