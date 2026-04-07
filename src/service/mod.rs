@@ -4,8 +4,8 @@ use anyhow::anyhow;
 use beas_bsl::{Client, ClientConfig};
 use chrono::{Datelike, Local, Timelike};
 
-mod types;
-pub use types::{State, StateOneData, StateTwoData};
+mod state;
+pub use state::{State, StateOneData, StateTwoData};
 
 #[derive(Debug)]
 pub struct StageOneService {
