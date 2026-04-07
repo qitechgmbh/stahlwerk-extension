@@ -11,5 +11,10 @@ smol       = "2.0.2"
 
 beas_bsl = { git = "https://github.com/qitechgmbh/beas-bsl.git", rev = "0647cc0" }
 
+crossbeam = "0.8.4"
+
+anyhow = "1.0.102"
+chrono = "0.4.0"
+
 # ratatui = "0.30.0"
 # crossterm = "0.29.0"

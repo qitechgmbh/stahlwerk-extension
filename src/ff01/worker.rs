@@ -14,8 +14,7 @@ use crate::ff01::{
 use super::{InternalRequest, ResponseError};
 
 #[derive(Debug)]
-pub enum WorkerError
-{
+pub enum WorkerError {
     Closed,
     Timeout,
 }

@@ -4,6 +4,8 @@ pub use beas_bsl::ClientConfig;
 pub use beas_bsl::api::Date;
 pub use beas_bsl::api::Time;
 
+mod service;
+
 pub mod ff01;
 
 #[derive(Debug, Clone, Serialize)]
