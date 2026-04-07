@@ -9,7 +9,7 @@ serde      = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 smol       = "2.0.2"
 
-beas_bsl = { git = "https://github.com/qitechgmbh/beas-bsl.git", branch = "main" }
+beas_bsl = { git = "https://github.com/qitechgmbh/beas-bsl.git", rev = "0647cc0" }
 
 # ratatui = "0.30.0"
 # crossterm = "0.29.0"
